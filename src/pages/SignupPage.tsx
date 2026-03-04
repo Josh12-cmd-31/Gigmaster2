@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
+import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { auth } from '../firebase';
 import { Mail, Lock, User, ArrowRight, Loader2, Briefcase, ShoppingBag } from 'lucide-react';
 import { motion } from 'motion/react';
 
@@ -14,7 +15,6 @@ export default function SignupPage() {
   const [portfolioUrl, setPortfolioUrl] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const { login } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -23,14 +23,19 @@ export default function SignupPage() {
     setIsLoading(true);
 
     try {
+      // 1. Create user in Firebase
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const fbUser = userCredential.user;
+
+      // 2. Create profile in our backend
       const res = await fetch('/api/auth/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           name, 
           email, 
-          password, 
           role,
+          firebase_uid: fbUser.uid,
           bio: role === 'seller' ? bio : undefined,
           skills: role === 'seller' ? skills : undefined,
           portfolio_url: role === 'seller' ? portfolioUrl : undefined
@@ -38,13 +43,13 @@ export default function SignupPage() {
       });
       const data = await res.json();
       if (res.ok) {
-        login(data.token, data.user);
         navigate(role === 'seller' ? '/seller-dashboard' : '/');
       } else {
-        setError(data.error || 'Signup failed');
+        setError(data.error || 'Signup failed in backend');
       }
-    } catch (err) {
-      setError('Something went wrong. Please try again.');
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'Signup failed. Please try again.');
     } finally {
       setIsLoading(false);
     }

@@ -18,9 +18,10 @@ const JWT_SECRET = process.env.JWT_SECRET || "gigmaster-secret-key-123";
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    firebase_uid TEXT UNIQUE,
     name TEXT NOT NULL,
     email TEXT UNIQUE NOT NULL,
-    password TEXT NOT NULL,
+    password TEXT,
     role TEXT DEFAULT 'buyer',
     avatar TEXT,
     bio TEXT,
@@ -73,6 +74,9 @@ db.exec(`
 
 // Database Migrations
 try {
+  db.exec("ALTER TABLE users ADD COLUMN firebase_uid TEXT UNIQUE");
+} catch (e) {}
+try {
   db.exec("ALTER TABLE users ADD COLUMN skills TEXT");
 } catch (e) {}
 try {
@@ -94,24 +98,34 @@ const PORT = 3000;
   app.use(express.json());
 
 // --- Auth API ---
+  app.get("/api/auth/profile/:uid", (req, res) => {
+    const { uid } = req.params;
+    const user = db.prepare("SELECT * FROM users WHERE firebase_uid = ?").get(uid) as any;
+    if (user) {
+      res.json(user);
+    } else {
+      res.status(404).json({ error: "User not found" });
+    }
+  });
+
   app.post("/api/auth/signup", async (req, res) => {
-    const { name, email, password, role, bio, skills, portfolio_url } = req.body;
+    const { name, email, role, bio, skills, portfolio_url, firebase_uid } = req.body;
     try {
-      const hashedPassword = await bcrypt.hash(password, 10);
-      const result = db.prepare("INSERT INTO users (name, email, password, role, bio, skills, portfolio_url) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
+      const result = db.prepare("INSERT INTO users (name, email, role, bio, skills, portfolio_url, firebase_uid) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
         name, 
         email, 
-        hashedPassword, 
         role || 'buyer',
         bio || null,
         skills || null,
-        portfolio_url || null
+        portfolio_url || null,
+        firebase_uid
       );
       const token = jwt.sign({ id: result.lastInsertRowid, email, role }, JWT_SECRET);
       res.json({ 
         token, 
         user: { 
           id: result.lastInsertRowid, 
+          firebase_uid,
           name, 
           email, 
           role,
