@@ -1,0 +1,9 @@
+{
+  "name": "GigMaster",
+  "description": "A professional freelance marketplace platform where skills meet opportunity.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ]
+}
