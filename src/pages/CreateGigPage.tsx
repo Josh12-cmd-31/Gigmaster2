@@ -50,7 +50,8 @@ export default function CreateGigPage() {
         }),
       });
       if (res.ok) {
-        navigate('/seller-dashboard');
+        // Redirect to home page so they can see it on the "main dashboard"
+        navigate('/');
       }
     } catch (err) {
       console.error(err);

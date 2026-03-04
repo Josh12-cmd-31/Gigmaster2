@@ -42,6 +42,7 @@ db.exec(`
     image_url TEXT,
     rating REAL DEFAULT 0,
     reviews_count INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'published',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (seller_id) REFERENCES users(id)
   );
@@ -76,6 +77,12 @@ try {
 } catch (e) {}
 try {
   db.exec("ALTER TABLE users ADD COLUMN portfolio_url TEXT");
+} catch (e) {}
+try {
+  db.exec("ALTER TABLE gigs ADD COLUMN status TEXT DEFAULT 'published'");
+} catch (e) {}
+try {
+  db.exec("ALTER TABLE gigs ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP");
 } catch (e) {}
 
 const app = express();
@@ -154,16 +161,17 @@ const PORT = 3000;
 
   app.get("/api/gigs", (req, res) => {
     const { category, search } = req.query;
-    let query = "SELECT gigs.*, users.name as seller_name, users.avatar as seller_avatar FROM gigs JOIN users ON gigs.seller_id = users.id";
+    let query = "SELECT gigs.*, users.name as seller_name, users.avatar as seller_avatar FROM gigs JOIN users ON gigs.seller_id = users.id WHERE status = 'published'";
     const params = [];
     if (category) {
-      query += " WHERE category = ?";
+      query += " AND category = ?";
       params.push(category);
     }
     if (search) {
-      query += category ? " AND title LIKE ?" : " WHERE title LIKE ?";
+      query += " AND title LIKE ?";
       params.push(`%${search}%`);
     }
+    query += " ORDER BY created_at DESC";
     const gigs = db.prepare(query).all(...params);
     res.json(gigs);
   });
@@ -203,6 +211,23 @@ const PORT = 3000;
   });
 
   // --- Messages API ---
+  app.get("/api/conversations/:userId", (req, res) => {
+    const { userId } = req.params;
+    const conversations = db.prepare(`
+      SELECT DISTINCT 
+        CASE WHEN sender_id = ? THEN receiver_id ELSE sender_id END as other_user_id,
+        users.name as other_user_name,
+        users.avatar as other_user_avatar,
+        (SELECT content FROM messages WHERE (sender_id = ? AND receiver_id = users.id) OR (sender_id = users.id AND receiver_id = ?) ORDER BY created_at DESC LIMIT 1) as last_message,
+        (SELECT created_at FROM messages WHERE (sender_id = ? AND receiver_id = users.id) OR (sender_id = users.id AND receiver_id = ?) ORDER BY created_at DESC LIMIT 1) as last_message_time
+      FROM messages 
+      JOIN users ON users.id = (CASE WHEN sender_id = ? THEN receiver_id ELSE sender_id END)
+      WHERE sender_id = ? OR receiver_id = ?
+      ORDER BY last_message_time DESC
+    `).all(userId, userId, userId, userId, userId, userId, userId, userId);
+    res.json(conversations);
+  });
+
   app.get("/api/messages/:userId/:otherId", (req, res) => {
     const { userId, otherId } = req.params;
     const messages = db.prepare(`
@@ -214,18 +239,37 @@ const PORT = 3000;
   });
 
   // --- WebSockets ---
+  const clients = new Map<number, any>();
+
   wss.on("connection", (ws) => {
+    let currentUserId: number | null = null;
+
     ws.on("message", (data) => {
       const message = JSON.parse(data.toString());
+      
+      if (message.type === "auth") {
+        currentUserId = message.userId;
+        clients.set(currentUserId!, ws);
+      }
+
       if (message.type === "chat") {
         const { sender_id, receiver_id, content } = message;
         db.prepare("INSERT INTO messages (sender_id, receiver_id, content) VALUES (?, ?, ?)").run(sender_id, receiver_id, content);
-        // Broadcast to all clients (simple implementation)
-        wss.clients.forEach((client) => {
-          if (client.readyState === ws.OPEN) {
-            client.send(JSON.stringify(message));
-          }
-        });
+        
+        // Send to receiver if online
+        const receiverWs = clients.get(receiver_id);
+        if (receiverWs && receiverWs.readyState === ws.OPEN) {
+          receiverWs.send(JSON.stringify(message));
+        }
+        
+        // Send back to sender for confirmation (optional, but good for sync)
+        ws.send(JSON.stringify(message));
+      }
+    });
+
+    ws.on("close", () => {
+      if (currentUserId) {
+        clients.delete(currentUserId);
       }
     });
   });

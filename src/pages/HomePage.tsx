@@ -178,13 +178,13 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Featured Gigs */}
+      {/* Recent Gigs */}
       <section className="bg-slate-100 py-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-end mb-10">
             <div>
-              <h2 className="text-3xl font-bold text-slate-900 mb-2">Featured Services</h2>
-              <p className="text-slate-500">Hand-picked services by our experts</p>
+              <h2 className="text-3xl font-bold text-slate-900 mb-2">Recent Services</h2>
+              <p className="text-slate-500">The latest services published by our community</p>
             </div>
             <Link to="/explore" className="text-primary font-bold flex items-center gap-1 hover:underline">
               Explore More <ArrowRight className="w-4 h-4" />

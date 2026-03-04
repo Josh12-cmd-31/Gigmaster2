@@ -1,10 +1,13 @@
 import { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import GigCard from '../components/GigCard';
 import { User, Star, MapPin, Calendar, MessageSquare, ExternalLink, Tag } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function SellerProfilePage() {
   const { id } = useParams();
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const [seller, setSeller] = useState<any>(null);
   const [gigs, setGigs] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -36,6 +39,14 @@ export default function SellerProfilePage() {
     fetchSellerData();
   }, [id]);
 
+  const handleContact = () => {
+    if (!user) {
+      navigate('/login');
+      return;
+    }
+    navigate(`/messages?userId=${id}`);
+  };
+
   if (isLoading) return <div className="max-w-7xl mx-auto px-4 py-20 animate-pulse">Loading...</div>;
   if (!seller) return <div className="max-w-7xl mx-auto px-4 py-20 text-center">Seller not found</div>;
 
@@ -56,7 +67,12 @@ export default function SellerProfilePage() {
               {[1, 2, 3, 4, 5].map(i => <Star key={i} className="w-5 h-5 text-accent fill-accent" />)}
               <span className="ml-2 font-bold text-slate-900">5.0</span>
             </div>
-            <button className="w-full btn-primary py-3">Contact Me</button>
+            <button 
+              onClick={handleContact}
+              className="w-full btn-primary py-3"
+            >
+              Contact Me
+            </button>
             
             <div className="border-t border-slate-100 pt-6 space-y-4 text-left">
               <div className="flex items-center justify-between text-sm">

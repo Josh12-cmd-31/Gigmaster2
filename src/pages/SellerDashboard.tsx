@@ -6,16 +6,19 @@ import { LayoutDashboard, ShoppingBag, Plus, DollarSign, TrendingUp, Users, Star
 export default function SellerDashboard() {
   const { user } = useAuth();
   const [orders, setOrders] = useState([]);
+  const [myGigs, setMyGigs] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     if (user) {
-      fetch(`/api/orders/seller/${user.id}`)
-        .then(res => res.json())
-        .then(data => {
-          setOrders(data);
-          setIsLoading(false);
-        });
+      Promise.all([
+        fetch(`/api/orders/seller/${user.id}`).then(res => res.json()),
+        fetch(`/api/gigs`).then(res => res.json())
+      ]).then(([ordersData, allGigs]) => {
+        setOrders(ordersData);
+        setMyGigs(allGigs.filter((g: any) => g.seller_id === user.id));
+        setIsLoading(false);
+      });
     }
   }, [user]);
 
@@ -104,6 +107,38 @@ export default function SellerDashboard() {
         </div>
 
         <div className="space-y-8">
+          <div className="card">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+              <h2 className="text-xl font-bold text-slate-900">My Gigs</h2>
+              <Link to="/create-gig" className="text-primary text-sm font-bold hover:underline">Add New</Link>
+            </div>
+            <div className="p-6 space-y-4">
+              {myGigs.length > 0 ? (
+                myGigs.map((gig: any) => (
+                  <div key={gig.id} className="flex items-center gap-4 p-3 bg-slate-50 rounded-xl group hover:bg-slate-100 transition-colors">
+                    <img src={gig.image_url || `https://picsum.photos/seed/${gig.id}/100/100`} alt="" className="w-12 h-12 rounded-lg object-cover" />
+                    <div className="flex-grow min-w-0">
+                      <h3 className="font-bold text-slate-900 text-sm truncate group-hover:text-primary transition-colors">{gig.title}</h3>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded text-[10px] font-bold uppercase tracking-wider">
+                          {gig.status || 'Published'}
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                          ${gig.price_basic}
+                        </span>
+                      </div>
+                    </div>
+                    <Link to={`/gig/${gig.id}`} className="p-2 text-slate-400 hover:text-primary transition-colors">
+                      <TrendingUp className="w-4 h-4" />
+                    </Link>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-6 text-slate-500 text-sm">No gigs yet</div>
+              )}
+            </div>
+          </div>
+
           <div className="card p-6">
             <h2 className="text-xl font-bold text-slate-900 mb-6">Quick Actions</h2>
             <div className="space-y-3">

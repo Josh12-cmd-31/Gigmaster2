@@ -11,10 +11,22 @@ interface GigCardProps {
     reviews_count: number;
     seller_name: string;
     seller_avatar?: string;
+    created_at?: string;
   };
 }
 
 export default function GigCard({ gig }: GigCardProps) {
+  const isNew = gig.created_at ? (
+    (() => {
+      // SQLite CURRENT_TIMESTAMP is 'YYYY-MM-DD HH:MM:SS' in UTC
+      // Convert to ISO format 'YYYY-MM-DDTHH:MM:SSZ' for reliable parsing
+      const isoString = gig.created_at.includes('T') ? gig.created_at : gig.created_at.replace(' ', 'T') + 'Z';
+      const createdDate = new Date(isoString);
+      const now = new Date();
+      return (now.getTime() - createdDate.getTime()) < 24 * 60 * 60 * 1000;
+    })()
+  ) : false;
+
   return (
     <Link to={`/gig/${gig.id}`} className="card group">
       <div className="aspect-video overflow-hidden relative">
@@ -24,6 +36,11 @@ export default function GigCard({ gig }: GigCardProps) {
           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
           referrerPolicy="no-referrer"
         />
+        {isNew && (
+          <div className="absolute top-2 left-2 bg-secondary text-white px-2 py-1 rounded-lg text-[10px] font-bold shadow-sm uppercase tracking-wider">
+            New
+          </div>
+        )}
         <div className="absolute top-2 right-2 bg-white/90 backdrop-blur-sm px-2 py-1 rounded-lg text-xs font-bold shadow-sm">
           From ${gig.price_basic}
         </div>

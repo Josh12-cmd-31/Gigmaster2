@@ -1,9 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Send, User, Search, Phone, Video, Info, MessageSquare } from 'lucide-react';
 
 export default function MessagePage() {
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
+  const targetUserId = searchParams.get('userId');
+  
   const [messages, setMessages] = useState<any[]>([]);
   const [content, setContent] = useState('');
   const [selectedUser, setSelectedUser] = useState<any>(null);
@@ -12,25 +16,62 @@ export default function MessagePage() {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // Mock contacts for demo
-    setContacts([
-      { id: 1, name: 'Alex Rivera', avatar: 'https://i.pravatar.cc/150?u=1', status: 'online', lastMsg: 'I can start on that logo today!' },
-      { id: 2, name: 'Sarah Chen', avatar: 'https://i.pravatar.cc/150?u=2', status: 'offline', lastMsg: 'The revisions are complete.' },
-      { id: 3, name: 'Marcus Thorne', avatar: 'https://i.pravatar.cc/150?u=3', status: 'online', lastMsg: 'Thanks for the order!' },
-    ]);
+    if (!user) return;
+
+    // Fetch real conversations
+    const fetchConversations = async () => {
+      const res = await fetch(`/api/conversations/${user.id}`);
+      const data = await res.json();
+      setContacts(data);
+
+      // If there's a target user from URL, try to select them
+      if (targetUserId) {
+        const targetId = parseInt(targetUserId);
+        const existingContact = data.find((c: any) => c.other_user_id === targetId);
+        if (existingContact) {
+          setSelectedUser({
+            id: existingContact.other_user_id,
+            name: existingContact.other_user_name,
+            avatar: existingContact.other_user_avatar
+          });
+        } else {
+          // Fetch user info for new conversation
+          const userRes = await fetch(`/api/users/${targetId}`);
+          if (userRes.ok) {
+            const userData = await userRes.json();
+            setSelectedUser({
+              id: userData.id,
+              name: userData.name,
+              avatar: userData.avatar
+            });
+          }
+        }
+      }
+    };
+
+    fetchConversations();
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     ws.current = new WebSocket(`${protocol}//${window.location.host}`);
 
+    ws.current.onopen = () => {
+      ws.current?.send(JSON.stringify({ type: 'auth', userId: user.id }));
+    };
+
     ws.current.onmessage = (event) => {
       const msg = JSON.parse(event.data);
       if (msg.type === 'chat') {
-        setMessages(prev => [...prev, msg]);
+        // If message is for/from the currently selected user, add to messages
+        if (selectedUser && (msg.sender_id === selectedUser.id || msg.receiver_id === selectedUser.id)) {
+          setMessages(prev => [...prev, msg]);
+        }
+        // Refresh conversations list to update last message
+        fetchConversations();
       }
     };
 
     return () => ws.current?.close();
-  }, []);
+  }, [user, targetUserId, selectedUser?.id]);
 
   useEffect(() => {
     if (selectedUser && user) {
@@ -79,24 +120,35 @@ export default function MessagePage() {
           <div className="flex-grow overflow-y-auto">
             {contacts.map(contact => (
               <button
-                key={contact.id}
-                onClick={() => setSelectedUser(contact)}
+                key={contact.other_user_id}
+                onClick={() => setSelectedUser({
+                  id: contact.other_user_id,
+                  name: contact.other_user_name,
+                  avatar: contact.other_user_avatar
+                })}
                 className={`w-full p-4 flex gap-3 hover:bg-slate-50 transition-colors border-l-4 ${
-                  selectedUser?.id === contact.id ? 'border-primary bg-blue-50/30' : 'border-transparent'
+                  selectedUser?.id === contact.other_user_id ? 'border-primary bg-blue-50/30' : 'border-transparent'
                 }`}
               >
                 <div className="relative">
-                  <img src={contact.avatar} alt="" className="w-12 h-12 rounded-full object-cover" />
-                  {contact.status === 'online' && (
-                    <div className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-white rounded-full"></div>
+                  {contact.other_user_avatar ? (
+                    <img src={contact.other_user_avatar} alt="" className="w-12 h-12 rounded-full object-cover" />
+                  ) : (
+                    <div className="w-12 h-12 bg-slate-200 rounded-full flex items-center justify-center">
+                      <User className="w-6 h-6 text-slate-400" />
+                    </div>
                   )}
                 </div>
                 <div className="text-left flex-grow">
                   <div className="flex justify-between items-center mb-1">
-                    <span className="font-bold text-slate-900 text-sm">{contact.name}</span>
-                    <span className="text-[10px] text-slate-400 font-bold uppercase">12:45 PM</span>
+                    <span className="font-bold text-slate-900 text-sm">{contact.other_user_name}</span>
+                    {contact.last_message_time && (
+                      <span className="text-[10px] text-slate-400 font-bold uppercase">
+                        {new Date(contact.last_message_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    )}
                   </div>
-                  <p className="text-xs text-slate-500 line-clamp-1">{contact.lastMsg}</p>
+                  <p className="text-xs text-slate-500 line-clamp-1">{contact.last_message || 'No messages yet'}</p>
                 </div>
               </button>
             ))}
@@ -109,10 +161,16 @@ export default function MessagePage() {
             <>
               <div className="p-4 bg-white border-b border-slate-100 flex justify-between items-center">
                 <div className="flex items-center gap-3">
-                  <img src={selectedUser.avatar} alt="" className="w-10 h-10 rounded-full object-cover" />
+                  {selectedUser.avatar ? (
+                    <img src={selectedUser.avatar} alt="" className="w-10 h-10 rounded-full object-cover" />
+                  ) : (
+                    <div className="w-10 h-10 bg-slate-200 rounded-full flex items-center justify-center">
+                      <User className="w-5 h-5 text-slate-400" />
+                    </div>
+                  )}
                   <div>
                     <h3 className="font-bold text-slate-900">{selectedUser.name}</h3>
-                    <span className="text-xs text-emerald-500 font-bold uppercase tracking-wider">Online</span>
+                    <span className="text-xs text-emerald-500 font-bold uppercase tracking-wider">Active Now</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-4 text-slate-400">

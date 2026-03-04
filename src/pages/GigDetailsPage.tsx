@@ -41,6 +41,14 @@ export default function GigDetailsPage() {
     }
   };
 
+  const handleContact = () => {
+    if (!user) {
+      navigate('/login');
+      return;
+    }
+    navigate(`/messages?userId=${gig.seller_id}`);
+  };
+
   if (isLoading) return <div className="max-w-7xl mx-auto px-4 py-20 animate-pulse">Loading...</div>;
   if (!gig) return <div className="max-w-7xl mx-auto px-4 py-20">Gig not found</div>;
 
@@ -95,7 +103,10 @@ export default function GigDetailsPage() {
               <div className="space-y-2">
                 <h3 className="text-xl font-bold text-slate-900">{gig.seller_name}</h3>
                 <p className="text-slate-500">{gig.seller_bio || 'Professional freelancer dedicated to delivering high-quality work.'}</p>
-                <button className="px-6 py-2 border-2 border-slate-200 rounded-xl font-bold text-slate-700 hover:bg-slate-50 transition-colors">
+                <button 
+                  onClick={handleContact}
+                  className="px-6 py-2 border-2 border-slate-200 rounded-xl font-bold text-slate-700 hover:bg-slate-50 transition-colors"
+                >
                   Contact Me
                 </button>
               </div>
@@ -157,7 +168,10 @@ export default function GigDetailsPage() {
               </button>
               
               <div className="text-center">
-                <button className="text-sm font-bold text-slate-500 hover:text-primary transition-colors flex items-center justify-center gap-2 mx-auto">
+                <button 
+                  onClick={handleContact}
+                  className="text-sm font-bold text-slate-500 hover:text-primary transition-colors flex items-center justify-center gap-2 mx-auto"
+                >
                   <MessageSquare className="w-4 h-4" /> Contact Seller
                 </button>
               </div>
