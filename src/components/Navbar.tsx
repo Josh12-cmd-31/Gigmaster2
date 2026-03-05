@@ -1,6 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { Search, MessageSquare, Bell, User, LogOut, Menu, X, Sparkles, Code2, Palette } from 'lucide-react';
+import { Search, MessageSquare, Bell, User, LogOut, Menu, X, Sparkles, Code2, Palette, Users, Shield } from 'lucide-react';
 import { useState } from 'react';
 
 export default function Navbar() {
@@ -44,6 +44,9 @@ export default function Navbar() {
                 <Link to="/logo-designer" className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2">
                   <Palette className="w-4 h-4 text-orange-500" /> Logo Designer
                 </Link>
+                <Link to="/affiliate" className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2">
+                  <Users className="w-4 h-4 text-purple-500" /> Affiliate Program
+                </Link>
               </div>
             </div>
             {user ? (
@@ -63,7 +66,13 @@ export default function Navbar() {
                   </button>
                   <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-lg border border-slate-100 py-2 hidden group-hover:block">
                     <Link to={user.role === 'seller' ? "/seller-dashboard" : "/buyer-dashboard"} className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">Dashboard</Link>
-                    <Link to="/profile" className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">Profile</Link>
+                    <Link to={`/profile/${user.id}`} className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">Profile</Link>
+                    <Link to="/affiliate" className="block px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">Affiliate Dashboard</Link>
+                    {user.role === 'admin' && (
+                      <Link to="/admin" className="block px-4 py-2 text-sm text-red-600 font-bold hover:bg-red-50 flex items-center gap-2">
+                        <Shield className="w-4 h-4" /> Admin Panel
+                      </Link>
+                    )}
                     <button onClick={logout} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2">
                       <LogOut className="w-4 h-4" /> Sign Out
                     </button>

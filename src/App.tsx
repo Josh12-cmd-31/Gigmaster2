@@ -10,13 +10,14 @@ import SellerDashboard from './pages/SellerDashboard';
 import BuyerDashboard from './pages/BuyerDashboard';
 import CreateGigPage from './pages/CreateGigPage';
 import MessagePage from './pages/MessagePage';
-import SellerProfilePage from './pages/SellerProfilePage';
+import ProfilePage from './pages/ProfilePage';
 import AdminPanel from './pages/AdminPanel';
 import CategoriesPage from './pages/CategoriesPage';
 import SellerGuidelinesPage from './pages/SellerGuidelinesPage';
 import AiTutoringPage from './pages/AiTutoringPage';
 import WebDevToolsPage from './pages/WebDevToolsPage';
 import LogoDesignerPage from './pages/LogoDesignerPage';
+import AffiliatePage from './pages/AffiliatePage';
 
 export default function App() {
   return (
@@ -35,13 +36,14 @@ export default function App() {
               <Route path="/buyer-dashboard" element={<BuyerDashboard />} />
               <Route path="/create-gig" element={<CreateGigPage />} />
               <Route path="/messages" element={<MessagePage />} />
-              <Route path="/profile/:id" element={<SellerProfilePage />} />
+              <Route path="/profile/:id" element={<ProfilePage />} />
               <Route path="/admin" element={<AdminPanel />} />
               <Route path="/categories" element={<CategoriesPage />} />
               <Route path="/seller-guidelines" element={<SellerGuidelinesPage />} />
               <Route path="/ai-tutoring" element={<AiTutoringPage />} />
               <Route path="/web-dev-tools" element={<WebDevToolsPage />} />
               <Route path="/logo-designer" element={<LogoDesignerPage />} />
+              <Route path="/affiliate" element={<AffiliatePage />} />
             </Routes>
           </main>
           <footer className="bg-slate-900 text-white py-12">

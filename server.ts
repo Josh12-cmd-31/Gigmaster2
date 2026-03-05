@@ -29,7 +29,8 @@ const wss = new WebSocketServer({ server });
 const PORT = 3000;
 
 // Basic middleware that doesn't depend on DB
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Health check - move outside IIFE to ensure it's available early
 app.get("/api/health", (req, res) => {
@@ -120,6 +121,16 @@ app.use((req, res, next) => {
           FOREIGN KEY (sender_id) REFERENCES users(id),
           FOREIGN KEY (receiver_id) REFERENCES users(id)
         );
+
+        CREATE TABLE IF NOT EXISTS withdrawals (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL,
+          amount REAL NOT NULL,
+          status TEXT DEFAULT 'pending',
+          processing_days INTEGER NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (user_id) REFERENCES users(id)
+        );
       `);
       console.log("Database tables initialized");
     } catch (err) {
@@ -144,6 +155,31 @@ app.use((req, res, next) => {
       const hasPortfolio = columns.some(c => c.name === 'portfolio_url');
       if (!hasPortfolio) {
         db.exec("ALTER TABLE users ADD COLUMN portfolio_url TEXT");
+      }
+
+      const hasExperience = columns.some(c => c.name === 'experience');
+      if (!hasExperience) {
+        db.exec("ALTER TABLE users ADD COLUMN experience TEXT");
+      }
+
+      const hasReferralCode = columns.some(c => c.name === 'referral_code');
+      if (!hasReferralCode) {
+        db.exec("ALTER TABLE users ADD COLUMN referral_code TEXT UNIQUE");
+      }
+
+      const hasReferredBy = columns.some(c => c.name === 'referred_by');
+      if (!hasReferredBy) {
+        db.exec("ALTER TABLE users ADD COLUMN referred_by INTEGER");
+      }
+
+      const hasBalance = columns.some(c => c.name === 'balance');
+      if (!hasBalance) {
+        db.exec("ALTER TABLE users ADD COLUMN balance REAL DEFAULT 0");
+      }
+
+      const hasIsPremium = columns.some(c => c.name === 'is_premium');
+      if (!hasIsPremium) {
+        db.exec("ALTER TABLE users ADD COLUMN is_premium INTEGER DEFAULT 0");
       }
     } catch (e) {
       console.error("Migration error (users):", e);
@@ -171,6 +207,12 @@ app.use((req, res, next) => {
       console.log(`Fetching profile for UID: ${uid}`);
       const user = db.prepare("SELECT * FROM users WHERE firebase_uid = ?").get(uid) as any;
       if (user) {
+        // Ensure referral code exists for old users
+        if (!user.referral_code) {
+          const new_referral_code = Math.random().toString(36).substring(2, 8).toUpperCase();
+          db.prepare("UPDATE users SET referral_code = ? WHERE id = ?").run(new_referral_code, user.id);
+          user.referral_code = new_referral_code;
+        }
         res.json(user);
       } else {
         console.log(`User not found for UID: ${uid}`);
@@ -183,19 +225,37 @@ app.use((req, res, next) => {
   });
 
   app.post("/api/auth/signup", async (req, res) => {
-    const { name, email, role, bio, skills, portfolio_url, firebase_uid } = req.body;
+    const { name, email, role, bio, skills, portfolio_url, firebase_uid, referral_code: used_referral_code } = req.body;
     console.log(`Signup attempt for email: ${email}, UID: ${firebase_uid}`);
     try {
-      const result = db.prepare("INSERT INTO users (name, email, role, bio, skills, portfolio_url, firebase_uid) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
+      // Generate a unique referral code for the new user
+      const new_referral_code = Math.random().toString(36).substring(2, 8).toUpperCase();
+      
+      let referred_by_id = null;
+      if (used_referral_code) {
+        const referrer = db.prepare("SELECT id, is_premium FROM users WHERE referral_code = ?").get(used_referral_code) as any;
+        if (referrer && referrer.is_premium) {
+          referred_by_id = referrer.id;
+          // Credit the referrer $30
+          db.prepare("UPDATE users SET balance = balance + 30 WHERE id = ?").run(referrer.id);
+        }
+      }
+
+      // Security: Only allow 'buyer' or 'seller' from frontend, unless it's the master admin email
+      const finalRole = (email === 'admin@gigmaster.com') ? 'admin' : (role === 'seller' ? 'seller' : 'buyer');
+
+      const result = db.prepare("INSERT INTO users (name, email, role, bio, skills, portfolio_url, firebase_uid, referral_code, referred_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
         name, 
         email, 
-        role || 'buyer',
+        finalRole,
         bio || null,
         skills || null,
         portfolio_url || null,
-        firebase_uid
+        firebase_uid,
+        new_referral_code,
+        referred_by_id
       );
-      const token = jwt.sign({ id: result.lastInsertRowid, email, role }, JWT_SECRET);
+      const token = jwt.sign({ id: result.lastInsertRowid, email, role: finalRole }, JWT_SECRET);
       res.json({ 
         token, 
         user: { 
@@ -203,10 +263,13 @@ app.use((req, res, next) => {
           firebase_uid,
           name, 
           email, 
-          role,
+          role: finalRole,
           bio: bio || null,
           skills: skills || null,
-          portfolio_url: portfolio_url || null
+          portfolio_url: portfolio_url || null,
+          referral_code: new_referral_code,
+          balance: 0,
+          is_premium: 0
         } 
       });
     } catch (error: any) {
@@ -231,15 +294,117 @@ app.use((req, res, next) => {
         role: user.role,
         bio: user.bio,
         skills: user.skills,
-        portfolio_url: user.portfolio_url
+        portfolio_url: user.portfolio_url,
+        referral_code: user.referral_code,
+        balance: user.balance,
+        is_premium: user.is_premium
       } 
     });
   });
 
   app.get("/api/users/:id", (req, res) => {
-    const user = db.prepare("SELECT id, name, email, role, avatar, bio, skills, portfolio_url, created_at FROM users WHERE id = ?").get(req.params.id);
+    const user = db.prepare("SELECT id, name, email, role, avatar, bio, skills, portfolio_url, referral_code, balance, is_premium, created_at FROM users WHERE id = ?").get(req.params.id);
     if (!user) return res.status(404).json({ error: "User not found" });
     res.json(user);
+  });
+
+  // --- Affiliate API ---
+  app.get("/api/affiliate/stats/:userId", (req, res) => {
+    const { userId } = req.params;
+    const user = db.prepare("SELECT referral_code, balance, is_premium FROM users WHERE id = ?").get(userId) as any;
+    if (!user) return res.status(404).json({ error: "User not found" });
+    
+    const referrals = db.prepare("SELECT id, name, created_at FROM users WHERE referred_by = ?").all(userId);
+    res.json({
+      referral_code: user.referral_code,
+      balance: user.balance,
+      is_premium: user.is_premium,
+      total_referrals: referrals.length,
+      referrals: referrals
+    });
+  });
+
+  app.post("/api/affiliate/withdraw", (req, res) => {
+    const { userId, amount } = req.body;
+    const user = db.prepare("SELECT balance, is_premium FROM users WHERE id = ?").get(userId) as any;
+    
+    if (!user) return res.status(404).json({ error: "User not found" });
+    
+    const minWithdrawal = user.is_premium ? 50 : 100;
+    const processingDays = user.is_premium ? 1 : 3;
+    
+    if (amount < minWithdrawal) {
+      return res.status(400).json({ error: `Minimum withdrawal for ${user.is_premium ? 'Premium' : 'Free'} users is $${minWithdrawal}` });
+    }
+    
+    if (user.balance < amount) {
+      return res.status(400).json({ error: "Insufficient balance" });
+    }
+    
+    db.prepare("UPDATE users SET balance = balance - ? WHERE id = ?").run(amount, userId);
+    db.prepare("INSERT INTO withdrawals (user_id, amount, processing_days) VALUES (?, ?, ?)").run(userId, amount, processingDays);
+    
+    res.json({ success: true, message: `Withdrawal of $${amount} requested. It will arrive in ${processingDays} day(s).` });
+  });
+
+  app.get("/api/affiliate/withdrawals/:userId", (req, res) => {
+    const withdrawals = db.prepare("SELECT * FROM withdrawals WHERE user_id = ? ORDER BY created_at DESC").all(req.params.userId);
+    res.json(withdrawals);
+  });
+
+  app.post("/api/users/upgrade-premium", (req, res) => {
+    const { userId } = req.body;
+    db.prepare("UPDATE users SET is_premium = 1 WHERE id = ?").run(userId);
+    res.json({ success: true, message: "Upgraded to Premium successfully!" });
+  });
+
+  // --- Admin API ---
+  const adminAuth = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const uid = req.headers['x-admin-uid'];
+    if (!uid) return res.status(401).json({ error: "Unauthorized" });
+    
+    const user = db.prepare("SELECT role FROM users WHERE firebase_uid = ?").get(uid) as any;
+    if (user?.role === 'admin') {
+      next();
+    } else {
+      res.status(403).json({ error: "Forbidden: Admin access required" });
+    }
+  };
+
+  app.get("/api/admin/users", adminAuth, (req, res) => {
+    const users = db.prepare("SELECT id, name, email, role, balance, is_premium, created_at FROM users ORDER BY created_at DESC").all();
+    res.json(users);
+  });
+
+  app.get("/api/admin/withdrawals", adminAuth, (req, res) => {
+    const withdrawals = db.prepare(`
+      SELECT withdrawals.*, users.name as user_name, users.email as user_email 
+      FROM withdrawals 
+      JOIN users ON withdrawals.user_id = users.id 
+      ORDER BY withdrawals.created_at DESC
+    `).all();
+    res.json(withdrawals);
+  });
+
+  app.post("/api/admin/withdrawals/:id/status", adminAuth, (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body;
+    db.prepare("UPDATE withdrawals SET status = ? WHERE id = ?").run(status, id);
+    res.json({ success: true });
+  });
+
+  app.post("/api/admin/gigs/:id/status", adminAuth, (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body;
+    db.prepare("UPDATE gigs SET status = ? WHERE id = ?").run(status, id);
+    res.json({ success: true });
+  });
+
+  app.delete("/api/admin/users/:id", adminAuth, (req, res) => {
+    const { id } = req.params;
+    // In a real app, we'd handle cascading deletes or soft deletes
+    db.prepare("DELETE FROM users WHERE id = ?").run(id);
+    res.json({ success: true });
   });
 
   // --- Gigs API ---
@@ -269,6 +434,11 @@ app.use((req, res, next) => {
   app.get("/api/gigs/:id", (req, res) => {
     const gig = db.prepare("SELECT gigs.*, users.name as seller_name, users.avatar as seller_avatar, users.bio as seller_bio FROM gigs JOIN users ON gigs.seller_id = users.id WHERE gigs.id = ?").get(req.params.id);
     res.json(gig);
+  });
+
+  app.get("/api/gigs/seller/:id", (req, res) => {
+    const gigs = db.prepare("SELECT gigs.*, users.name as seller_name FROM gigs JOIN users ON gigs.seller_id = users.id WHERE seller_id = ?").all(req.params.id);
+    res.json(gigs);
   });
 
   app.post("/api/gigs", (req, res) => {

@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI, Modality } from "@google/genai";
 import { Mic, MicOff, Volume2, VolumeX, Send, Loader2, BookOpen, Sparkles, Brain } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { pcmToWav } from '../utils/audio';
 
 export default function AiTutoringPage() {
   const { user } = useAuth();
@@ -133,8 +134,10 @@ export default function AiTutoringPage() {
       if (isVoiceEnabled) {
         const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
         if (base64Audio) {
-          const audio = new Audio(`data:audio/mp3;base64,${base64Audio}`);
-          audio.play();
+          const audioUrl = pcmToWav(base64Audio);
+          const audio = new Audio(audioUrl);
+          audio.play().catch(err => console.error("Audio play error:", err));
+          audio.onended = () => URL.revokeObjectURL(audioUrl);
         }
       }
     } catch (error) {

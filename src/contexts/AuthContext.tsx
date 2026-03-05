@@ -10,6 +10,9 @@ interface User {
   email: string;
   role: 'buyer' | 'seller' | 'admin';
   avatar?: string;
+  referral_code?: string;
+  balance?: number;
+  is_premium?: number;
 }
 
 interface AuthContextType {

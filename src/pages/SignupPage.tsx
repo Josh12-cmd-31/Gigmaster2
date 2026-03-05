@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '../firebase';
 import { Mail, Lock, User, ArrowRight, Loader2, Briefcase, ShoppingBag } from 'lucide-react';
@@ -17,6 +17,8 @@ export default function SignupPage() {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const referralCode = searchParams.get('ref');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,6 +39,7 @@ export default function SignupPage() {
           email, 
           role,
           firebase_uid: fbUser.uid,
+          referral_code: referralCode || undefined,
           bio: role === 'seller' ? bio : undefined,
           skills: role === 'seller' ? skills : undefined,
           portfolio_url: role === 'seller' ? portfolioUrl : undefined
@@ -59,6 +62,11 @@ export default function SignupPage() {
           <div className="text-center md:text-left">
             <h2 className="text-3xl font-bold text-slate-900">Join GigMaster</h2>
             <p className="mt-2 text-slate-500">Start your journey today</p>
+            {referralCode && (
+              <div className="mt-4 p-3 bg-primary/5 border border-primary/20 rounded-xl text-xs font-bold text-primary flex items-center gap-2">
+                <ArrowRight className="w-4 h-4" /> Referred by friend: {referralCode}
+              </div>
+            )}
           </div>
 
           {error && (

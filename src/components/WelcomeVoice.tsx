@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { GoogleGenAI, Modality } from "@google/genai";
 import { Volume2, VolumeX, Loader2, Play, X, ChevronRight, ChevronLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { pcmToWav } from '../utils/audio';
 
 const SLIDES = [
   {
@@ -95,14 +96,20 @@ export default function WelcomeVoice() {
 
       const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
       if (base64Audio) {
-        const audio = new Audio(`data:audio/mp3;base64,${base64Audio}`);
+        const audioUrl = pcmToWav(base64Audio);
+        const audio = new Audio(audioUrl);
         audioRef.current = audio;
         setIsPlaying(true);
-        audio.play();
+        audio.play().catch(err => {
+          console.error("Audio playback error:", err);
+          setIsPlaying(false);
+          handleClose();
+        });
         
         audio.onended = () => {
           setIsPlaying(false);
           handleClose();
+          URL.revokeObjectURL(audioUrl);
         };
       }
     } catch (error) {
