@@ -34,8 +34,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         try {
           const res = await fetch(`/api/auth/profile/${fbUser.uid}`);
           if (res.ok) {
-            const userData = await res.json();
-            setUser(userData);
+            const contentType = res.headers.get("content-type");
+            if (contentType && contentType.includes("application/json")) {
+              const userData = await res.json();
+              setUser(userData);
+            } else {
+              const text = await res.text();
+              console.error('Expected JSON but received:', text.substring(0, 100));
+              setUser(null);
+            }
           } else {
             // User exists in Firebase but not in our DB yet (e.g. signup in progress)
             setUser(null);

@@ -74,13 +74,29 @@ db.exec(`
 
 // Database Migrations
 try {
-  db.exec("ALTER TABLE users ADD COLUMN firebase_uid TEXT UNIQUE");
+  const columns = db.prepare("PRAGMA table_info(users)").all() as any[];
+  console.log("Current users table columns:", columns.map(c => c.name).join(", "));
+  const hasFirebaseUid = columns.some(c => c.name === 'firebase_uid');
+  if (!hasFirebaseUid) {
+    db.exec("ALTER TABLE users ADD COLUMN firebase_uid TEXT UNIQUE");
+    console.log("Added firebase_uid column to users table");
+  }
+} catch (e) {
+  console.error("Migration error (firebase_uid):", e);
+}
+try {
+  const columns = db.prepare("PRAGMA table_info(users)").all() as any[];
+  const hasSkills = columns.some(c => c.name === 'skills');
+  if (!hasSkills) {
+    db.exec("ALTER TABLE users ADD COLUMN skills TEXT");
+  }
 } catch (e) {}
 try {
-  db.exec("ALTER TABLE users ADD COLUMN skills TEXT");
-} catch (e) {}
-try {
-  db.exec("ALTER TABLE users ADD COLUMN portfolio_url TEXT");
+  const columns = db.prepare("PRAGMA table_info(users)").all() as any[];
+  const hasPortfolio = columns.some(c => c.name === 'portfolio_url');
+  if (!hasPortfolio) {
+    db.exec("ALTER TABLE users ADD COLUMN portfolio_url TEXT");
+  }
 } catch (e) {}
 try {
   db.exec("ALTER TABLE gigs ADD COLUMN status TEXT DEFAULT 'published'");
@@ -99,17 +115,25 @@ const PORT = 3000;
 
 // --- Auth API ---
   app.get("/api/auth/profile/:uid", (req, res) => {
-    const { uid } = req.params;
-    const user = db.prepare("SELECT * FROM users WHERE firebase_uid = ?").get(uid) as any;
-    if (user) {
-      res.json(user);
-    } else {
-      res.status(404).json({ error: "User not found" });
+    try {
+      const { uid } = req.params;
+      console.log(`Fetching profile for UID: ${uid}`);
+      const user = db.prepare("SELECT * FROM users WHERE firebase_uid = ?").get(uid) as any;
+      if (user) {
+        res.json(user);
+      } else {
+        console.log(`User not found for UID: ${uid}`);
+        res.status(404).json({ error: "User not found" });
+      }
+    } catch (error: any) {
+      console.error("Error in /api/auth/profile/:uid:", error);
+      res.status(500).json({ error: "Internal server error", details: error.message });
     }
   });
 
   app.post("/api/auth/signup", async (req, res) => {
     const { name, email, role, bio, skills, portfolio_url, firebase_uid } = req.body;
+    console.log(`Signup attempt for email: ${email}, UID: ${firebase_uid}`);
     try {
       const result = db.prepare("INSERT INTO users (name, email, role, bio, skills, portfolio_url, firebase_uid) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
         name, 
@@ -135,6 +159,7 @@ const PORT = 3000;
         } 
       });
     } catch (error: any) {
+      console.error("Error in /api/auth/signup:", error);
       res.status(400).json({ error: error.message });
     }
   });

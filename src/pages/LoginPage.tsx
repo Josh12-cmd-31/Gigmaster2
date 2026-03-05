@@ -24,8 +24,15 @@ export default function LoginPage() {
       // but we can also fetch it here to redirect correctly
       const res = await fetch(`/api/auth/profile/${fbUser.uid}`);
       if (res.ok) {
-        const userData = await res.json();
-        navigate(userData.role === 'seller' ? '/seller-dashboard' : '/');
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.includes("application/json")) {
+          const userData = await res.json();
+          navigate(userData.role === 'seller' ? '/seller-dashboard' : '/');
+        } else {
+          const text = await res.text();
+          console.error('Expected JSON but received:', text.substring(0, 100));
+          setError('Server returned an invalid response format.');
+        }
       } else {
         setError('User profile not found. Please contact support.');
       }

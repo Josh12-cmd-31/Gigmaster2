@@ -41,11 +41,24 @@ export default function SignupPage() {
           portfolio_url: role === 'seller' ? portfolioUrl : undefined
         }),
       });
-      const data = await res.json();
+      
+      const contentType = res.headers.get("content-type");
       if (res.ok) {
-        navigate(role === 'seller' ? '/seller-dashboard' : '/');
+        if (contentType && contentType.includes("application/json")) {
+          await res.json();
+          navigate(role === 'seller' ? '/seller-dashboard' : '/');
+        } else {
+          navigate(role === 'seller' ? '/seller-dashboard' : '/');
+        }
       } else {
-        setError(data.error || 'Signup failed in backend');
+        if (contentType && contentType.includes("application/json")) {
+          const data = await res.json();
+          setError(data.error || 'Signup failed in backend');
+        } else {
+          const text = await res.text();
+          console.error('Signup error (non-JSON):', text.substring(0, 100));
+          setError('Server error during signup. Please try again.');
+        }
       }
     } catch (err: any) {
       console.error(err);
