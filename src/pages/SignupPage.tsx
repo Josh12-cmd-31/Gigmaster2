@@ -4,6 +4,7 @@ import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '../firebase';
 import { Mail, Lock, User, ArrowRight, Loader2, Briefcase, ShoppingBag } from 'lucide-react';
 import { motion } from 'motion/react';
+import { safeFetch } from '../utils/api';
 
 export default function SignupPage() {
   const [name, setName] = useState('');
@@ -28,7 +29,7 @@ export default function SignupPage() {
       const fbUser = userCredential.user;
 
       // 2. Create profile in our backend
-      const res = await fetch('/api/auth/signup', {
+      await safeFetch('/api/auth/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -42,24 +43,7 @@ export default function SignupPage() {
         }),
       });
       
-      const contentType = res.headers.get("content-type");
-      if (res.ok) {
-        if (contentType && contentType.includes("application/json")) {
-          await res.json();
-          navigate(role === 'seller' ? '/seller-dashboard' : '/');
-        } else {
-          navigate(role === 'seller' ? '/seller-dashboard' : '/');
-        }
-      } else {
-        if (contentType && contentType.includes("application/json")) {
-          const data = await res.json();
-          setError(data.error || 'Signup failed in backend');
-        } else {
-          const text = await res.text();
-          console.error('Signup error (non-JSON):', text.substring(0, 100));
-          setError('Server error during signup. Please try again.');
-        }
-      }
+      navigate(role === 'seller' ? '/seller-dashboard' : '/');
     } catch (err: any) {
       console.error(err);
       setError(err.message || 'Signup failed. Please try again.');

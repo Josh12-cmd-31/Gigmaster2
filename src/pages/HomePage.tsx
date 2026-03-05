@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import GigCard from '../components/GigCard';
 import WelcomeVoice from '../components/WelcomeVoice';
 import { useEffect, useState } from 'react';
+import { safeFetch } from '../utils/api';
 
 const CATEGORIES = [
   { name: 'Graphics & Design', icon: '🎨' },
@@ -35,9 +36,11 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
-    fetch('/api/gigs')
-      .then(res => res.json())
-      .then(data => setFeaturedGigs(data.slice(0, 4)));
+    safeFetch('/api/gigs')
+      .then(data => {
+        if (data) setFeaturedGigs(data.slice(0, 4));
+      })
+      .catch(err => console.error('Failed to fetch gigs:', err));
   }, []);
 
   return (

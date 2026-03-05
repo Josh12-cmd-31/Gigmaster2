@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import GigCard from '../components/GigCard';
 import { Filter, SlidersHorizontal, ChevronDown, Search } from 'lucide-react';
+import { safeFetch } from '../utils/api';
 
 const CATEGORIES = [
   'All Categories',
@@ -26,10 +27,13 @@ export default function ExplorePage() {
     setIsLoading(true);
     const catParam = category === 'All Categories' ? '' : `category=${category}`;
     const searchParam = search ? `&search=${search}` : '';
-    fetch(`/api/gigs?${catParam}${searchParam}`)
-      .then(res => res.json())
+    safeFetch(`/api/gigs?${catParam}${searchParam}`)
       .then(data => {
-        setGigs(data);
+        if (data) setGigs(data);
+        setIsLoading(false);
+      })
+      .catch(err => {
+        console.error('Explore fetch error:', err);
         setIsLoading(false);
       });
   }, [category, search]);

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { Link } from 'react-router-dom';
 import { LayoutDashboard, ShoppingBag, Plus, DollarSign, TrendingUp, Users, Star, Clock } from 'lucide-react';
+import { safeFetch } from '../utils/api';
 
 export default function SellerDashboard() {
   const { user } = useAuth();
@@ -12,11 +13,14 @@ export default function SellerDashboard() {
   useEffect(() => {
     if (user) {
       Promise.all([
-        fetch(`/api/orders/seller/${user.id}`).then(res => res.json()),
-        fetch(`/api/gigs`).then(res => res.json())
+        safeFetch(`/api/orders/seller/${user.id}`),
+        safeFetch(`/api/gigs`)
       ]).then(([ordersData, allGigs]) => {
-        setOrders(ordersData);
-        setMyGigs(allGigs.filter((g: any) => g.seller_id === user.id));
+        if (ordersData) setOrders(ordersData);
+        if (allGigs) setMyGigs(allGigs.filter((g: any) => g.seller_id === user.id));
+        setIsLoading(false);
+      }).catch(err => {
+        console.error('Dashboard fetch error:', err);
         setIsLoading(false);
       });
     }

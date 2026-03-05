@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { Link } from 'react-router-dom';
 import { ShoppingBag, Heart, MessageSquare, Clock, Star, ArrowRight } from 'lucide-react';
+import { safeFetch } from '../utils/api';
 
 export default function BuyerDashboard() {
   const { user } = useAuth();
@@ -10,10 +11,13 @@ export default function BuyerDashboard() {
 
   useEffect(() => {
     if (user) {
-      fetch(`/api/orders/buyer/${user.id}`)
-        .then(res => res.json())
+      safeFetch(`/api/orders/buyer/${user.id}`)
         .then(data => {
-          setOrders(data);
+          if (data) setOrders(data);
+          setIsLoading(false);
+        })
+        .catch(err => {
+          console.error('Buyer dashboard fetch error:', err);
           setIsLoading(false);
         });
     }

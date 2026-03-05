@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
 import { auth } from '../firebase';
+import { safeFetch } from '../utils/api';
 
 interface User {
   id: number;
@@ -32,19 +33,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (fbUser) {
         // Fetch user profile from backend using firebase_uid
         try {
-          const res = await fetch(`/api/auth/profile/${fbUser.uid}`);
-          if (res.ok) {
-            const contentType = res.headers.get("content-type");
-            if (contentType && contentType.includes("application/json")) {
-              const userData = await res.json();
-              setUser(userData);
-            } else {
-              const text = await res.text();
-              console.error('Expected JSON but received:', text.substring(0, 100));
-              setUser(null);
-            }
+          const userData = await safeFetch(`/api/auth/profile/${fbUser.uid}`);
+          if (userData) {
+            setUser(userData);
           } else {
-            // User exists in Firebase but not in our DB yet (e.g. signup in progress)
             setUser(null);
           }
         } catch (err) {

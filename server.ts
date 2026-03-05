@@ -10,108 +10,159 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-const dbPath = process.env.VERCEL ? "/tmp/gigmaster.db" : "gigmaster.db";
-const db = new Database(dbPath);
+console.log("Starting server script...");
+console.log("Environment:", {
+  NODE_ENV: process.env.NODE_ENV,
+  VERCEL: process.env.VERCEL,
+  PORT: 3000
+});
+
+// Use /tmp for database if possible, as it's usually writable in container environments
+const dbPath = process.env.DB_PATH || (process.env.VERCEL || fs.existsSync('/tmp') ? "/tmp/gigmaster.db" : "gigmaster.db");
+console.log("Using database path:", dbPath);
+
 const JWT_SECRET = process.env.JWT_SECRET || "gigmaster-secret-key-123";
-
-// Initialize Database
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    firebase_uid TEXT UNIQUE,
-    name TEXT NOT NULL,
-    email TEXT UNIQUE NOT NULL,
-    password TEXT,
-    role TEXT DEFAULT 'buyer',
-    avatar TEXT,
-    bio TEXT,
-    skills TEXT,
-    portfolio_url TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE TABLE IF NOT EXISTS gigs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    seller_id INTEGER NOT NULL,
-    title TEXT NOT NULL,
-    description TEXT NOT NULL,
-    category TEXT NOT NULL,
-    price_basic REAL NOT NULL,
-    price_standard REAL,
-    price_premium REAL,
-    delivery_basic INTEGER NOT NULL,
-    image_url TEXT,
-    rating REAL DEFAULT 0,
-    reviews_count INTEGER DEFAULT 0,
-    status TEXT DEFAULT 'published',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (seller_id) REFERENCES users(id)
-  );
-
-  CREATE TABLE IF NOT EXISTS orders (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    gig_id INTEGER NOT NULL,
-    buyer_id INTEGER NOT NULL,
-    seller_id INTEGER NOT NULL,
-    status TEXT DEFAULT 'pending',
-    amount REAL NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (gig_id) REFERENCES gigs(id),
-    FOREIGN KEY (buyer_id) REFERENCES users(id),
-    FOREIGN KEY (seller_id) REFERENCES users(id)
-  );
-
-  CREATE TABLE IF NOT EXISTS messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    sender_id INTEGER NOT NULL,
-    receiver_id INTEGER NOT NULL,
-    content TEXT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (sender_id) REFERENCES users(id),
-    FOREIGN KEY (receiver_id) REFERENCES users(id)
-  );
-`);
-
-// Database Migrations
-try {
-  const columns = db.prepare("PRAGMA table_info(users)").all() as any[];
-  console.log("Current users table columns:", columns.map(c => c.name).join(", "));
-  const hasFirebaseUid = columns.some(c => c.name === 'firebase_uid');
-  if (!hasFirebaseUid) {
-    db.exec("ALTER TABLE users ADD COLUMN firebase_uid TEXT UNIQUE");
-    console.log("Added firebase_uid column to users table");
-  }
-} catch (e) {
-  console.error("Migration error (firebase_uid):", e);
-}
-try {
-  const columns = db.prepare("PRAGMA table_info(users)").all() as any[];
-  const hasSkills = columns.some(c => c.name === 'skills');
-  if (!hasSkills) {
-    db.exec("ALTER TABLE users ADD COLUMN skills TEXT");
-  }
-} catch (e) {}
-try {
-  const columns = db.prepare("PRAGMA table_info(users)").all() as any[];
-  const hasPortfolio = columns.some(c => c.name === 'portfolio_url');
-  if (!hasPortfolio) {
-    db.exec("ALTER TABLE users ADD COLUMN portfolio_url TEXT");
-  }
-} catch (e) {}
-try {
-  db.exec("ALTER TABLE gigs ADD COLUMN status TEXT DEFAULT 'published'");
-} catch (e) {}
-try {
-  db.exec("ALTER TABLE gigs ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP");
-} catch (e) {}
 
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 const PORT = 3000;
 
+// Basic middleware that doesn't depend on DB
+app.use(express.json());
+
+// Health check - move outside IIFE to ensure it's available early
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok", time: new Date().toISOString(), env: process.env.NODE_ENV });
+});
+
+// Request logging middleware
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+  next();
+});
+
 (async () => {
-  app.use(express.json());
+  console.log("Entering async IIFE...");
+  let db: any;
+  try {
+    db = new Database(dbPath);
+    console.log("Database initialized successfully");
+  } catch (err) {
+    console.error("FAILED TO INITIALIZE DATABASE:", err);
+    // Try one more time with a local path if /tmp failed, or vice versa
+    try {
+      const fallbackPath = dbPath.includes('/tmp') ? "gigmaster.db" : "/tmp/gigmaster.db";
+      console.log("Attempting fallback database path:", fallbackPath);
+      db = new Database(fallbackPath);
+      console.log("Fallback database initialized successfully");
+    } catch (fallbackErr) {
+      console.error("CRITICAL: All database initialization attempts failed.");
+      // Don't exit yet, let the health check stay alive if possible
+    }
+  }
+
+  if (db) {
+    // Initialize Database Tables
+    try {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS users (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          firebase_uid TEXT UNIQUE,
+          name TEXT NOT NULL,
+          email TEXT UNIQUE NOT NULL,
+          password TEXT,
+          role TEXT DEFAULT 'buyer',
+          avatar TEXT,
+          bio TEXT,
+          skills TEXT,
+          portfolio_url TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS gigs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          seller_id INTEGER NOT NULL,
+          title TEXT NOT NULL,
+          description TEXT NOT NULL,
+          category TEXT NOT NULL,
+          price_basic REAL NOT NULL,
+          price_standard REAL,
+          price_premium REAL,
+          delivery_basic INTEGER NOT NULL,
+          image_url TEXT,
+          rating REAL DEFAULT 0,
+          reviews_count INTEGER DEFAULT 0,
+          status TEXT DEFAULT 'published',
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (seller_id) REFERENCES users(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS orders (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          gig_id INTEGER NOT NULL,
+          buyer_id INTEGER NOT NULL,
+          seller_id INTEGER NOT NULL,
+          status TEXT DEFAULT 'pending',
+          amount REAL NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (gig_id) REFERENCES gigs(id),
+          FOREIGN KEY (buyer_id) REFERENCES users(id),
+          FOREIGN KEY (seller_id) REFERENCES users(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS messages (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          sender_id INTEGER NOT NULL,
+          receiver_id INTEGER NOT NULL,
+          content TEXT NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (sender_id) REFERENCES users(id),
+          FOREIGN KEY (receiver_id) REFERENCES users(id)
+        );
+      `);
+      console.log("Database tables initialized");
+    } catch (err) {
+      console.error("FAILED TO CREATE TABLES:", err);
+    }
+
+    // Database Migrations
+    try {
+      const columns = db.prepare("PRAGMA table_info(users)").all() as any[];
+      console.log("Current users table columns:", columns.map(c => c.name).join(", "));
+      const hasFirebaseUid = columns.some(c => c.name === 'firebase_uid');
+      if (!hasFirebaseUid) {
+        db.exec("ALTER TABLE users ADD COLUMN firebase_uid TEXT UNIQUE");
+        console.log("Added firebase_uid column to users table");
+      }
+      
+      const hasSkills = columns.some(c => c.name === 'skills');
+      if (!hasSkills) {
+        db.exec("ALTER TABLE users ADD COLUMN skills TEXT");
+      }
+      
+      const hasPortfolio = columns.some(c => c.name === 'portfolio_url');
+      if (!hasPortfolio) {
+        db.exec("ALTER TABLE users ADD COLUMN portfolio_url TEXT");
+      }
+    } catch (e) {
+      console.error("Migration error (users):", e);
+    }
+
+    try {
+      const columns = db.prepare("PRAGMA table_info(gigs)").all() as any[];
+      const hasStatus = columns.some(c => c.name === 'status');
+      if (!hasStatus) {
+        db.exec("ALTER TABLE gigs ADD COLUMN status TEXT DEFAULT 'published'");
+      }
+      const hasCreatedAt = columns.some(c => c.name === 'created_at');
+      if (!hasCreatedAt) {
+        db.exec("ALTER TABLE gigs ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP");
+      }
+    } catch (e) {
+      console.error("Migration error (gigs):", e);
+    }
+  }
 
 // --- Auth API ---
   app.get("/api/auth/profile/:uid", (req, res) => {
@@ -315,12 +366,18 @@ const PORT = 3000;
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production" && !process.env.VERCEL) {
-    const { createServer: createViteServer } = await import("vite");
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
+    try {
+      console.log("Initializing Vite middleware...");
+      const { createServer: createViteServer } = await import("vite");
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: "spa",
+      });
+      app.use(vite.middlewares);
+      console.log("Vite middleware initialized");
+    } catch (err) {
+      console.error("FAILED TO INITIALIZE VITE MIDDLEWARE:", err);
+    }
   } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
@@ -329,11 +386,15 @@ const PORT = 3000;
     });
   }
 
-  if (process.env.NODE_ENV !== "production" && !process.env.VERCEL) {
-    server.listen(PORT, "0.0.0.0", () => {
-      console.log(`Server running on http://localhost:${PORT}`);
-    });
-  }
+  server.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+  });
+
+  // Global error handler
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error("GLOBAL ERROR:", err);
+    res.status(500).json({ error: "Internal server error", message: err.message });
+  });
 })();
 
 export { app, server };

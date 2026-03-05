@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '../firebase';
 import { Mail, Lock, ArrowRight, Loader2 } from 'lucide-react';
+import { safeFetch } from '../utils/api';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -22,17 +23,9 @@ export default function LoginPage() {
       
       // The AuthContext will automatically fetch the profile via onAuthStateChanged
       // but we can also fetch it here to redirect correctly
-      const res = await fetch(`/api/auth/profile/${fbUser.uid}`);
-      if (res.ok) {
-        const contentType = res.headers.get("content-type");
-        if (contentType && contentType.includes("application/json")) {
-          const userData = await res.json();
-          navigate(userData.role === 'seller' ? '/seller-dashboard' : '/');
-        } else {
-          const text = await res.text();
-          console.error('Expected JSON but received:', text.substring(0, 100));
-          setError('Server returned an invalid response format.');
-        }
+      const userData = await safeFetch(`/api/auth/profile/${fbUser.uid}`);
+      if (userData) {
+        navigate(userData.role === 'seller' ? '/seller-dashboard' : '/');
       } else {
         setError('User profile not found. Please contact support.');
       }

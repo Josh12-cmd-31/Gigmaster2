@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Star, Clock, RotateCcw, Check, Shield, MessageSquare, User } from 'lucide-react';
+import { safeFetch } from '../utils/api';
 
 export default function GigDetailsPage() {
   const { id } = useParams();
@@ -12,10 +13,13 @@ export default function GigDetailsPage() {
   const [activeTab, setActiveTab] = useState('basic');
 
   useEffect(() => {
-    fetch(`/api/gigs/${id}`)
-      .then(res => res.json())
+    safeFetch(`/api/gigs/${id}`)
       .then(data => {
-        setGig(data);
+        if (data) setGig(data);
+        setIsLoading(false);
+      })
+      .catch(err => {
+        console.error('Gig details fetch error:', err);
         setIsLoading(false);
       });
   }, [id]);
@@ -26,18 +30,21 @@ export default function GigDetailsPage() {
       return;
     }
     const amount = activeTab === 'basic' ? gig.price_basic : activeTab === 'standard' ? gig.price_standard : gig.price_premium;
-    const res = await fetch('/api/orders', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        gig_id: gig.id,
-        buyer_id: user.id,
-        seller_id: gig.seller_id,
-        amount
-      }),
-    });
-    if (res.ok) {
+    try {
+      await safeFetch('/api/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          gig_id: gig.id,
+          buyer_id: user.id,
+          seller_id: gig.seller_id,
+          amount
+        }),
+      });
       navigate('/buyer-dashboard');
+    } catch (err) {
+      console.error('Order error:', err);
+      alert('Failed to place order. Please try again.');
     }
   };
 
