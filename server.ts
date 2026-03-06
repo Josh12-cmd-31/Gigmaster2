@@ -66,6 +66,9 @@ app.use((req, res, next) => {
   if (db) {
     // Initialize Database Tables
     try {
+      // Ensure admin users exist with correct roles
+      db.prepare("UPDATE users SET role = 'admin' WHERE email IN ('admin@gigmaster.com', 'n6690680@gmail.com')").run();
+      
       db.exec(`
         CREATE TABLE IF NOT EXISTS users (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -236,7 +239,8 @@ app.use((req, res, next) => {
       }
 
       // Security: Only allow 'buyer' or 'seller' from frontend, unless it's the master admin email
-      const finalRole = (email === 'admin@gigmaster.com') ? 'admin' : (role === 'seller' ? 'seller' : 'buyer');
+      const adminEmails = ['admin@gigmaster.com', 'n6690680@gmail.com'];
+      const finalRole = adminEmails.includes(email) ? 'admin' : (role === 'seller' ? 'seller' : 'buyer');
 
       const result = db.prepare("INSERT INTO users (name, email, password, role, bio, skills, portfolio_url, referral_code, referred_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
         name, 
