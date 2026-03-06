@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { createUserWithEmailAndPassword } from 'firebase/auth';
-import { auth } from '../firebase';
 import { Mail, Lock, User, ArrowRight, Loader2, Briefcase, ShoppingBag } from 'lucide-react';
 import { motion } from 'motion/react';
 import { safeFetch } from '../utils/api';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function SignupPage() {
   const [name, setName] = useState('');
@@ -20,25 +19,23 @@ export default function SignupPage() {
   const [searchParams] = useSearchParams();
   const referralCode = searchParams.get('ref');
 
+  const { login } = useAuth();
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setIsLoading(true);
 
     try {
-      // 1. Create user in Firebase
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      const fbUser = userCredential.user;
-
-      // 2. Create profile in our backend
-      await safeFetch('/api/auth/signup', {
+      // Create profile in our backend
+      const response = await safeFetch('/api/auth/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           name, 
           email, 
+          password,
           role,
-          firebase_uid: fbUser.uid,
           referral_code: referralCode || undefined,
           bio: role === 'seller' ? bio : undefined,
           skills: role === 'seller' ? skills : undefined,
@@ -46,6 +43,14 @@ export default function SignupPage() {
         }),
       });
       
+      if (response.error) {
+        throw new Error(response.error);
+      }
+
+      if (response.token && response.user) {
+        login(response.token, response.user);
+      }
+
       navigate(role === 'seller' ? '/seller-dashboard' : '/');
     } catch (err: any) {
       console.error(err);

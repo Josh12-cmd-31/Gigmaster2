@@ -1,11 +1,8 @@
 import { createContext, useContext, useState, useEffect } from 'react';
-import { onAuthStateChanged, signOut, User as FirebaseUser } from 'firebase/auth';
-import { auth } from '../firebase';
 import { safeFetch } from '../utils/api';
 
 interface User {
   id: number;
-  firebase_uid: string;
   name: string;
   email: string;
   role: 'buyer' | 'seller' | 'admin';
@@ -17,9 +14,8 @@ interface User {
 
 interface AuthContextType {
   user: User | null;
-  firebaseUser: FirebaseUser | null;
   login: (token: string, user: User) => void;
-  logout: () => Promise<void>;
+  logout: () => void;
   isLoading: boolean;
 }
 
@@ -27,52 +23,48 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
-      setFirebaseUser(fbUser);
-      if (fbUser) {
-        // Fetch user profile from backend using firebase_uid
+    const initAuth = async () => {
+      const token = localStorage.getItem('gm_token');
+      if (token) {
         try {
-          const userData = await safeFetch(`/api/auth/profile/${fbUser.uid}`);
-          if (userData) {
+          const userData = await safeFetch('/api/auth/me', {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          });
+          if (userData && !userData.error) {
             setUser(userData);
           } else {
+            localStorage.removeItem('gm_token');
             setUser(null);
           }
         } catch (err) {
           console.error('Error fetching user profile:', err);
+          localStorage.removeItem('gm_token');
           setUser(null);
         }
-      } else {
-        setUser(null);
-        localStorage.removeItem('gm_token');
-        localStorage.removeItem('gm_user');
       }
       setIsLoading(false);
-    });
+    };
 
-    return () => unsubscribe();
+    initAuth();
   }, []);
 
   const login = (newToken: string, newUser: User) => {
     setUser(newUser);
     localStorage.setItem('gm_token', newToken);
-    localStorage.setItem('gm_user', JSON.stringify(newUser));
   };
 
-  const logout = async () => {
-    await signOut(auth);
+  const logout = () => {
     setUser(null);
-    setFirebaseUser(null);
     localStorage.removeItem('gm_token');
-    localStorage.removeItem('gm_user');
   };
 
   return (
-    <AuthContext.Provider value={{ user, firebaseUser, login, logout, isLoading }}>
+    <AuthContext.Provider value={{ user, login, logout, isLoading }}>
       {children}
     </AuthContext.Provider>
   );

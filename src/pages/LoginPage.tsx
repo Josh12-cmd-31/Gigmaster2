@@ -1,9 +1,8 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { signInWithEmailAndPassword } from 'firebase/auth';
-import { auth } from '../firebase';
 import { Mail, Lock, ArrowRight, Loader2 } from 'lucide-react';
 import { safeFetch } from '../utils/api';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -11,6 +10,7 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
+  const { login } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -18,16 +18,21 @@ export default function LoginPage() {
     setIsLoading(true);
 
     try {
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const fbUser = userCredential.user;
-      
-      // The AuthContext will automatically fetch the profile via onAuthStateChanged
-      // but we can also fetch it here to redirect correctly
-      const userData = await safeFetch(`/api/auth/profile/${fbUser.uid}`);
-      if (userData) {
-        navigate(userData.role === 'seller' ? '/seller-dashboard' : '/');
+      const response = await safeFetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+
+      if (response.error) {
+        throw new Error(response.error);
+      }
+
+      if (response.token && response.user) {
+        login(response.token, response.user);
+        navigate(response.user.role === 'seller' ? '/seller-dashboard' : '/');
       } else {
-        setError('User profile not found. Please contact support.');
+        setError('Login failed. Please try again.');
       }
     } catch (err: any) {
       console.error(err);

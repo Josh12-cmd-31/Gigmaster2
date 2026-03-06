@@ -12,10 +12,11 @@ export default function AdminPanel() {
   const [activeTab, setActiveTab] = useState<'users' | 'gigs' | 'withdrawals'>('users');
 
   const fetchData = async () => {
-    if (!user?.firebase_uid) return;
+    const token = localStorage.getItem('gm_token');
+    if (!token) return;
     setIsLoading(true);
     try {
-      const headers = { 'x-admin-uid': user.firebase_uid };
+      const headers = { 'Authorization': `Bearer ${token}` };
       const [usersRes, gigsRes, withdrawalsRes] = await Promise.all([
         safeFetch('/api/admin/users', { headers }),
         safeFetch('/api/gigs'),
@@ -39,19 +40,21 @@ export default function AdminPanel() {
 
   const handleUserDelete = async (id: number) => {
     if (!confirm('Are you sure you want to delete this user?')) return;
+    const token = localStorage.getItem('gm_token');
     await safeFetch(`/api/admin/users/${id}`, { 
       method: 'DELETE',
-      headers: { 'x-admin-uid': user?.firebase_uid || '' }
+      headers: { 'Authorization': `Bearer ${token}` }
     });
     fetchData();
   };
 
   const handleGigStatus = async (id: number, status: string) => {
+    const token = localStorage.getItem('gm_token');
     await safeFetch(`/api/admin/gigs/${id}/status`, {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
-        'x-admin-uid': user?.firebase_uid || ''
+        'Authorization': `Bearer ${token}`
       },
       body: JSON.stringify({ status })
     });
@@ -59,11 +62,12 @@ export default function AdminPanel() {
   };
 
   const handleWithdrawalStatus = async (id: number, status: string) => {
+    const token = localStorage.getItem('gm_token');
     await safeFetch(`/api/admin/withdrawals/${id}/status`, {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
-        'x-admin-uid': user?.firebase_uid || ''
+        'Authorization': `Bearer ${token}`
       },
       body: JSON.stringify({ status })
     });

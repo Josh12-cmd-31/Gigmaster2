@@ -69,7 +69,6 @@ app.use((req, res, next) => {
       db.exec(`
         CREATE TABLE IF NOT EXISTS users (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          firebase_uid TEXT UNIQUE,
           name TEXT NOT NULL,
           email TEXT UNIQUE NOT NULL,
           password TEXT,
@@ -77,7 +76,12 @@ app.use((req, res, next) => {
           avatar TEXT,
           bio TEXT,
           skills TEXT,
+          experience TEXT,
           portfolio_url TEXT,
+          referral_code TEXT UNIQUE,
+          referred_by INTEGER,
+          balance REAL DEFAULT 0,
+          is_premium INTEGER DEFAULT 0,
           created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -138,51 +142,32 @@ app.use((req, res, next) => {
     }
 
     // Database Migrations
+    const migrateColumn = (tableName: string, columnName: string, columnDef: string) => {
+      try {
+        const columns = db.prepare(`PRAGMA table_info(${tableName})`).all() as any[];
+        const hasColumn = columns.some(c => c.name === columnName);
+        if (!hasColumn) {
+          console.log(`Migrating: Adding ${columnName} to ${tableName}`);
+          db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDef}`);
+        }
+      } catch (err) {
+        console.error(`Migration error adding ${columnName} to ${tableName}:`, err);
+      }
+    };
+
+    migrateColumn('users', 'skills', 'TEXT');
+    migrateColumn('users', 'portfolio_url', 'TEXT');
+    migrateColumn('users', 'experience', 'TEXT');
+    migrateColumn('users', 'referral_code', 'TEXT');
+    migrateColumn('users', 'referred_by', 'INTEGER');
+    migrateColumn('users', 'balance', 'REAL DEFAULT 0');
+    migrateColumn('users', 'is_premium', 'INTEGER DEFAULT 0');
+
+    // Add unique index for referral_code if it doesn't exist
     try {
-      const columns = db.prepare("PRAGMA table_info(users)").all() as any[];
-      console.log("Current users table columns:", columns.map(c => c.name).join(", "));
-      const hasFirebaseUid = columns.some(c => c.name === 'firebase_uid');
-      if (!hasFirebaseUid) {
-        db.exec("ALTER TABLE users ADD COLUMN firebase_uid TEXT UNIQUE");
-        console.log("Added firebase_uid column to users table");
-      }
-      
-      const hasSkills = columns.some(c => c.name === 'skills');
-      if (!hasSkills) {
-        db.exec("ALTER TABLE users ADD COLUMN skills TEXT");
-      }
-      
-      const hasPortfolio = columns.some(c => c.name === 'portfolio_url');
-      if (!hasPortfolio) {
-        db.exec("ALTER TABLE users ADD COLUMN portfolio_url TEXT");
-      }
-
-      const hasExperience = columns.some(c => c.name === 'experience');
-      if (!hasExperience) {
-        db.exec("ALTER TABLE users ADD COLUMN experience TEXT");
-      }
-
-      const hasReferralCode = columns.some(c => c.name === 'referral_code');
-      if (!hasReferralCode) {
-        db.exec("ALTER TABLE users ADD COLUMN referral_code TEXT UNIQUE");
-      }
-
-      const hasReferredBy = columns.some(c => c.name === 'referred_by');
-      if (!hasReferredBy) {
-        db.exec("ALTER TABLE users ADD COLUMN referred_by INTEGER");
-      }
-
-      const hasBalance = columns.some(c => c.name === 'balance');
-      if (!hasBalance) {
-        db.exec("ALTER TABLE users ADD COLUMN balance REAL DEFAULT 0");
-      }
-
-      const hasIsPremium = columns.some(c => c.name === 'is_premium');
-      if (!hasIsPremium) {
-        db.exec("ALTER TABLE users ADD COLUMN is_premium INTEGER DEFAULT 0");
-      }
+      db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral_code ON users(referral_code)");
     } catch (e) {
-      console.error("Migration error (users):", e);
+      console.log("Referral code index might already exist or table is empty");
     }
 
     try {
@@ -201,11 +186,11 @@ app.use((req, res, next) => {
   }
 
 // --- Auth API ---
-  app.get("/api/auth/profile/:uid", (req, res) => {
+  app.get("/api/auth/profile/:id", (req, res) => {
     try {
-      const { uid } = req.params;
-      console.log(`Fetching profile for UID: ${uid}`);
-      const user = db.prepare("SELECT * FROM users WHERE firebase_uid = ?").get(uid) as any;
+      const { id } = req.params;
+      console.log(`Fetching profile for ID: ${id}`);
+      const user = db.prepare("SELECT * FROM users WHERE id = ?").get(id) as any;
       if (user) {
         // Ensure referral code exists for old users
         if (!user.referral_code) {
@@ -215,19 +200,28 @@ app.use((req, res, next) => {
         }
         res.json(user);
       } else {
-        console.log(`User not found for UID: ${uid}`);
+        console.log(`User not found for ID: ${id}`);
         res.status(404).json({ error: "User not found" });
       }
     } catch (error: any) {
-      console.error("Error in /api/auth/profile/:uid:", error);
+      console.error("Error in /api/auth/profile/:id:", error);
       res.status(500).json({ error: "Internal server error", details: error.message });
     }
   });
 
   app.post("/api/auth/signup", async (req, res) => {
-    const { name, email, role, bio, skills, portfolio_url, firebase_uid, referral_code: used_referral_code } = req.body;
-    console.log(`Signup attempt for email: ${email}, UID: ${firebase_uid}`);
+    const { name, email, password, role, bio, skills, portfolio_url, referral_code: used_referral_code } = req.body;
+    console.log(`Signup attempt for email: ${email}`);
     try {
+      // Check if user already exists
+      const existingUser = db.prepare("SELECT id FROM users WHERE email = ?").get(email);
+      if (existingUser) {
+        return res.status(400).json({ error: "Email already registered" });
+      }
+
+      // Hash password
+      const hashedPassword = await bcrypt.hash(password, 10);
+
       // Generate a unique referral code for the new user
       const new_referral_code = Math.random().toString(36).substring(2, 8).toUpperCase();
       
@@ -244,23 +238,25 @@ app.use((req, res, next) => {
       // Security: Only allow 'buyer' or 'seller' from frontend, unless it's the master admin email
       const finalRole = (email === 'admin@gigmaster.com') ? 'admin' : (role === 'seller' ? 'seller' : 'buyer');
 
-      const result = db.prepare("INSERT INTO users (name, email, role, bio, skills, portfolio_url, firebase_uid, referral_code, referred_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
+      const result = db.prepare("INSERT INTO users (name, email, password, role, bio, skills, portfolio_url, referral_code, referred_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
         name, 
         email, 
+        hashedPassword,
         finalRole,
         bio || null,
         skills || null,
         portfolio_url || null,
-        firebase_uid,
         new_referral_code,
         referred_by_id
       );
-      const token = jwt.sign({ id: result.lastInsertRowid, email, role: finalRole }, JWT_SECRET);
+
+      const userId = Number(result.lastInsertRowid);
+      const token = jwt.sign({ id: userId, email, role: finalRole }, JWT_SECRET);
+      
       res.json({ 
         token, 
         user: { 
-          id: result.lastInsertRowid, 
-          firebase_uid,
+          id: userId, 
           name, 
           email, 
           role: finalRole,
@@ -280,26 +276,51 @@ app.use((req, res, next) => {
 
   app.post("/api/auth/login", async (req, res) => {
     const { email, password } = req.body;
-    const user = db.prepare("SELECT * FROM users WHERE email = ?").get(email) as any;
-    if (!user || !(await bcrypt.compare(password, user.password))) {
-      return res.status(401).json({ error: "Invalid credentials" });
+    try {
+      const user = db.prepare("SELECT * FROM users WHERE email = ?").get(email) as any;
+      if (!user) {
+        return res.status(401).json({ error: "Invalid email or password" });
+      }
+
+      const isPasswordValid = await bcrypt.compare(password, user.password);
+      if (!isPasswordValid) {
+        return res.status(401).json({ error: "Invalid email or password" });
+      }
+
+      const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET);
+      
+      // Don't send password back
+      const { password: _, ...userWithoutPassword } = user;
+      
+      res.json({ 
+        token, 
+        user: userWithoutPassword
+      });
+    } catch (error: any) {
+      console.error("Error in /api/auth/login:", error);
+      res.status(500).json({ error: "Internal server error" });
     }
-    const token = jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET);
-    res.json({ 
-      token, 
-      user: { 
-        id: user.id, 
-        name: user.name, 
-        email: user.email, 
-        role: user.role,
-        bio: user.bio,
-        skills: user.skills,
-        portfolio_url: user.portfolio_url,
-        referral_code: user.referral_code,
-        balance: user.balance,
-        is_premium: user.is_premium
-      } 
-    });
+  });
+
+  app.get("/api/auth/me", (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const token = authHeader.split(" ")[1];
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET) as any;
+      const user = db.prepare("SELECT * FROM users WHERE id = ?").get(decoded.id) as any;
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const { password: _, ...userWithoutPassword } = user;
+      res.json(userWithoutPassword);
+    } catch (error) {
+      res.status(401).json({ error: "Invalid token" });
+    }
   });
 
   app.get("/api/users/:id", (req, res) => {
@@ -360,14 +381,22 @@ app.use((req, res, next) => {
 
   // --- Admin API ---
   const adminAuth = (req: express.Request, res: express.Response, next: express.NextFunction) => {
-    const uid = req.headers['x-admin-uid'];
-    if (!uid) return res.status(401).json({ error: "Unauthorized" });
-    
-    const user = db.prepare("SELECT role FROM users WHERE firebase_uid = ?").get(uid) as any;
-    if (user?.role === 'admin') {
-      next();
-    } else {
-      res.status(403).json({ error: "Forbidden: Admin access required" });
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const token = authHeader.split(" ")[1];
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET) as any;
+      const user = db.prepare("SELECT role FROM users WHERE id = ?").get(decoded.id) as any;
+      if (user?.role === 'admin') {
+        next();
+      } else {
+        res.status(403).json({ error: "Forbidden: Admin access required" });
+      }
+    } catch (error) {
+      res.status(401).json({ error: "Invalid token" });
     }
   };
 
